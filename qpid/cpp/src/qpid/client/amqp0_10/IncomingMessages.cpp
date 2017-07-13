@@ -141,7 +141,7 @@ qpid::sys::Duration get_duration(qpid::sys::Duration timeout, qpid::sys::AbsTime
 bool IncomingMessages::get(Handler& handler, qpid::sys::Duration timeout)
 {
     sys::Mutex::ScopedLock l(lock);
-    AbsTime deadline(AbsTime::now(), timeout);
+    AbsTime deadline((timeout == 0) ? AbsTime::Zero() : AbsTime::now(), timeout);
     do {
         //search through received list for any transfer of interest:
         for (FrameSetQueue::iterator i = received.begin(); i != received.end();)
@@ -174,7 +174,7 @@ bool IncomingMessages::get(Handler& handler, qpid::sys::Duration timeout)
             }
         }
         if (handler.isClosed()) throw qpid::messaging::ReceiverError("Receiver has been closed");
-    } while (AbsTime::now() < deadline);
+    } while ((timeout == 0) ? false : AbsTime::now() < deadline);
     return false;
 }
 namespace {
@@ -191,7 +191,7 @@ void IncomingMessages::wakeup()
 bool IncomingMessages::getNextDestination(std::string& destination, qpid::sys::Duration timeout)
 {
     sys::Mutex::ScopedLock l(lock);
-    AbsTime deadline(AbsTime::now(), timeout);
+    AbsTime deadline((timeout == 0) ? AbsTime::Zero() : AbsTime::now(), timeout);
     while (received.empty()) {
         if (inUse) {
             //someone is already waiting on the sessions incoming queue
@@ -276,7 +276,7 @@ bool IncomingMessages::pop(FrameSet::shared_ptr& content, qpid::sys::Duration ti
  */
 IncomingMessages::ProcessState IncomingMessages::process(Handler* handler, qpid::sys::Duration duration)
 {
-    AbsTime deadline(AbsTime::now(), duration);
+    AbsTime deadline((duration == 0) ? AbsTime::Zero() : AbsTime::now(), duration);
     FrameSet::shared_ptr content;
     try {
         for (Duration timeout = duration; pop(content, timeout); timeout = Duration(AbsTime::now(), deadline)) {
@@ -306,7 +306,7 @@ IncomingMessages::ProcessState IncomingMessages::process(Handler* handler, qpid:
 
 bool IncomingMessages::wait(qpid::sys::Duration duration)
 {
-    AbsTime deadline(AbsTime::now(), duration);
+    AbsTime deadline((duration == 0) ? AbsTime::Zero() : AbsTime::now(), duration);
     FrameSet::shared_ptr content;
     for (Duration timeout = duration; pop(content, timeout); timeout = Duration(AbsTime::now(), deadline)) {
         if (content->isA<MessageTransferBody>()) {
