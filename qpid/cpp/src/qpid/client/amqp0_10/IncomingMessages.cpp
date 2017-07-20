@@ -276,27 +276,50 @@ bool IncomingMessages::pop(FrameSet::shared_ptr& content, qpid::sys::Duration ti
  */
 IncomingMessages::ProcessState IncomingMessages::process(Handler* handler, qpid::sys::Duration duration)
 {
-    AbsTime deadline((duration == 0) ? AbsTime::Zero() : AbsTime::now(), duration);
     FrameSet::shared_ptr content;
     try {
-        for (Duration timeout = duration; pop(content, timeout); timeout = Duration(AbsTime::now(), deadline)) {
-            if (content->isA<MessageTransferBody>()) {
-                MessageTransfer transfer(content, *this);
-                if (transfer.checkExpired()) {
-                    QPID_LOG(debug, "Expired received transfer: " << *content->getMethod());
-                } else if (handler && handler->accept(transfer)) {
-                    QPID_LOG(debug, "Delivered " << *content->getMethod() << " "
-                             << *content->getHeaders());
-                    return OK;
+        if (duration == 0) {
+            while (pop(content, 0)) {
+                if (content->isA<MessageTransferBody>()) {
+                    MessageTransfer transfer(content, *this);
+                    if (transfer.checkExpired()) {
+                        QPID_LOG(debug, "Expired received transfer: " << *content->getMethod());
+                    } else if (handler && handler->accept(transfer)) {
+                        QPID_LOG(debug, "Delivered " << *content->getMethod() << " "
+                                 << *content->getHeaders());
+                        return OK;
+                    } else {
+                        //received message for another destination, keep for later
+                        QPID_LOG(debug, "Pushed " << *content->getMethod() << " to received queue");
+                        sys::Mutex::ScopedLock l(lock);
+                        received.push_back(content);
+                        lock.notifyAll();
+                    }
                 } else {
-                    //received message for another destination, keep for later
-                    QPID_LOG(debug, "Pushed " << *content->getMethod() << " to received queue");
-                    sys::Mutex::ScopedLock l(lock);
-                    received.push_back(content);
-                    lock.notifyAll();
+                    //TODO: handle other types of commands (e.g. message-accept, message-flow etc)
                 }
-            } else {
-                //TODO: handle other types of commands (e.g. message-accept, message-flow etc)
+            }
+        } else {
+            AbsTime deadline(AbsTime::now(), duration);
+            for (Duration timeout = duration; pop(content, timeout); timeout = Duration(AbsTime::now(), deadline)) {
+                if (content->isA<MessageTransferBody>()) {
+                    MessageTransfer transfer(content, *this);
+                    if (transfer.checkExpired()) {
+                        QPID_LOG(debug, "Expired received transfer: " << *content->getMethod());
+                    } else if (handler && handler->accept(transfer)) {
+                        QPID_LOG(debug, "Delivered " << *content->getMethod() << " "
+                                 << *content->getHeaders());
+                        return OK;
+                    } else {
+                        //received message for another destination, keep for later
+                        QPID_LOG(debug, "Pushed " << *content->getMethod() << " to received queue");
+                        sys::Mutex::ScopedLock l(lock);
+                        received.push_back(content);
+                        lock.notifyAll();
+                    }
+                } else {
+                    //TODO: handle other types of commands (e.g. message-accept, message-flow etc)
+                }
             }
         }
     }
@@ -306,17 +329,31 @@ IncomingMessages::ProcessState IncomingMessages::process(Handler* handler, qpid:
 
 bool IncomingMessages::wait(qpid::sys::Duration duration)
 {
-    AbsTime deadline((duration == 0) ? AbsTime::Zero() : AbsTime::now(), duration);
     FrameSet::shared_ptr content;
-    for (Duration timeout = duration; pop(content, timeout); timeout = Duration(AbsTime::now(), deadline)) {
-        if (content->isA<MessageTransferBody>()) {
-            QPID_LOG(debug, "Pushed " << *content->getMethod() << " to received queue");
-            sys::Mutex::ScopedLock l(lock);
-            received.push_back(content);
-            lock.notifyAll();
-            return true;
-        } else {
-            //TODO: handle other types of commands (e.g. message-accept, message-flow etc)
+    if (duration == 0) {
+        while (pop(content, 0)) {
+            if (content->isA<MessageTransferBody>()) {
+                QPID_LOG(debug, "Pushed " << *content->getMethod() << " to received queue");
+                sys::Mutex::ScopedLock l(lock);
+                received.push_back(content);
+                lock.notifyAll();
+                return true;
+            } else {
+                //TODO: handle other types of commands (e.g. message-accept, message-flow etc)
+            }
+        }
+    } else {
+        AbsTime deadline(AbsTime::now(), duration);
+        for (Duration timeout = duration; pop(content, timeout); timeout = Duration(AbsTime::now(), deadline)) {
+            if (content->isA<MessageTransferBody>()) {
+                QPID_LOG(debug, "Pushed " << *content->getMethod() << " to received queue");
+                sys::Mutex::ScopedLock l(lock);
+                received.push_back(content);
+                lock.notifyAll();
+                return true;
+            } else {
+                //TODO: handle other types of commands (e.g. message-accept, message-flow etc)
+            }
         }
     }
     return false;

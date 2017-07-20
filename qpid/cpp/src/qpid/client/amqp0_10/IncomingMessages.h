@@ -99,7 +99,7 @@ class IncomingMessages
     ProcessState process(Handler*, qpid::sys::Duration);
     bool wait(qpid::sys::Duration);
     bool pop(FrameSetPtr&, qpid::sys::Duration);
-
+    
     void retrieve(FrameSetPtr, qpid::messaging::Message*);
 
 };
