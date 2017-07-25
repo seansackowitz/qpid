@@ -132,6 +132,8 @@ qpid::sys::Duration get_duration(qpid::sys::Duration timeout, qpid::sys::AbsTime
 {
     if (timeout == qpid::sys::TIME_INFINITE) {
         return qpid::sys::TIME_INFINITE;
+    } else if (timeout == qpid::sys::Duration(0)) {
+        return qpid::sys::Duration(0);
     } else {
         return std::max(qpid::sys::Duration(0), qpid::sys::Duration(AbsTime::now(), deadline));
     }
@@ -141,7 +143,7 @@ qpid::sys::Duration get_duration(qpid::sys::Duration timeout, qpid::sys::AbsTime
 bool IncomingMessages::get(Handler& handler, qpid::sys::Duration timeout)
 {
     sys::Mutex::ScopedLock l(lock);
-    AbsTime deadline((timeout == 0) ? AbsTime::Zero() : AbsTime::now(), timeout);
+    AbsTime deadline((timeout == qpid::sys::Duration(0)) ? AbsTime::Zero() : AbsTime::now(), timeout);
     do {
         //search through received list for any transfer of interest:
         for (FrameSetQueue::iterator i = received.begin(); i != received.end();)
@@ -174,7 +176,7 @@ bool IncomingMessages::get(Handler& handler, qpid::sys::Duration timeout)
             }
         }
         if (handler.isClosed()) throw qpid::messaging::ReceiverError("Receiver has been closed");
-    } while ((timeout == 0) ? false : AbsTime::now() < deadline);
+    } while ((timeout == qpid::sys::Duration(0)) ? false : AbsTime::now() < deadline);
     return false;
 }
 namespace {
@@ -191,7 +193,7 @@ void IncomingMessages::wakeup()
 bool IncomingMessages::getNextDestination(std::string& destination, qpid::sys::Duration timeout)
 {
     sys::Mutex::ScopedLock l(lock);
-    AbsTime deadline((timeout == 0) ? AbsTime::Zero() : AbsTime::now(), timeout);
+    AbsTime deadline((timeout == qpid::sys::Duration(0)) ? AbsTime::Zero() : AbsTime::now(), timeout);
     while (received.empty()) {
         if (inUse) {
             //someone is already waiting on the sessions incoming queue
@@ -203,7 +205,7 @@ bool IncomingMessages::getNextDestination(std::string& destination, qpid::sys::D
             //wait for an incoming message
             wait(get_duration(timeout, deadline));
         }
-        if (!(AbsTime::now() < deadline)) break;
+        if (timeout == qpid::sys::Duration(0) || !(AbsTime::now() < deadline)) break;
     }
     if (!received.empty()) {
         destination = received.front()->as<MessageTransferBody>()->getDestination();
@@ -278,7 +280,7 @@ IncomingMessages::ProcessState IncomingMessages::process(Handler* handler, qpid:
 {
     FrameSet::shared_ptr content;
     try {
-        if (duration == 0) {
+        if (duration == qpid::sys::Duration(0)) {
             while (pop(content, 0)) {
                 if (content->isA<MessageTransferBody>()) {
                     MessageTransfer transfer(content, *this);
@@ -330,7 +332,7 @@ IncomingMessages::ProcessState IncomingMessages::process(Handler* handler, qpid:
 bool IncomingMessages::wait(qpid::sys::Duration duration)
 {
     FrameSet::shared_ptr content;
-    if (duration == 0) {
+    if (duration == qpid::sys::Duration(0)) {
         while (pop(content, 0)) {
             if (content->isA<MessageTransferBody>()) {
                 QPID_LOG(debug, "Pushed " << *content->getMethod() << " to received queue");
